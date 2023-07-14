@@ -3,6 +3,7 @@
 import argparse
 import pathlib
 import subprocess
+import sys
 
 _SCRIPT_DIR = pathlib.Path(__file__).parent
 _TEST_SUITE_DIR = _SCRIPT_DIR / "craftinginterpreters" / "test"
@@ -69,7 +70,7 @@ def _info(*args, **kwargs) -> None:
 
 
 def _error(*args, **kwargs) -> None:
-    print("[ERROR|test.py]", *args, **kwargs)
+    print("[ERROR|test.py]", *args, file=sys.stderr, **kwargs)
 
 
 if __name__ == "__main__":
