@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
 import argparse
+import dataclasses
 import enum
 import pathlib
+import reprlib
 import subprocess
 import sys
 
@@ -61,8 +64,15 @@ def main() -> None:
             suite_root = _TEST_SUITE_DIR
 
         _info(f"using test suite directory: {str(suite_root)}")
+
+        tests = [Test.from_file(path) for path in suite_root.glob("**/*.lox")]
     except TestSetupError:
         exit(1)  # Assume relevant information is logged before raising.
+
+    # placeholder for now...
+    import pprint
+
+    pprint.pprint(tests)
 
 
 def _init_submodules(allow_submodule_init: bool = False) -> None:
@@ -78,6 +88,25 @@ def _init_submodules(allow_submodule_init: bool = False) -> None:
             cwd=_SCRIPT_DIR,
         )
     _info(f"{str(_TEST_SUITE_DIR)} found, assuming submodules are initialized")
+
+
+@dataclasses.dataclass(frozen=True)
+class Test:
+    name: str
+    contents: str
+
+    def __repr__(self) -> str:
+        return (
+            f"Test(name={self.name}, "
+            f"contents={reprlib.repr(self.contents)})"
+        )
+
+    def __str__(self) -> str:
+        return self.name
+
+    @classmethod
+    def from_file(cls, path: pathlib.Path) -> Test:
+        return cls(name=path.stem, contents=path.read_text())
 
 
 class TestSetupError(RuntimeError):
