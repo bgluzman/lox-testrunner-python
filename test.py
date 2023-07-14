@@ -12,8 +12,8 @@ _TEST_SUITE_DIR = _SCRIPT_DIR / "craftinginterpreters" / "test"
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--suite",
-        help="Test suite directory if not using the default set.",
+        "--suite-root",
+        help="Test suite root directory if not using the default.",
         default=None,
     )
     parser.add_argument(
@@ -26,8 +26,8 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        suite: pathlib.Path
-        if args.suite:
+        suite_root: pathlib.Path
+        if args.suite_root:
             if args.allow_submodule_init:
                 _error(
                     "argument '--init-submodules' not allowed when"
@@ -36,12 +36,12 @@ def main() -> None:
                 raise TestSetupError()
 
             _info("using user-provided test suite path")
-            suite = pathlib.Path(args.suite)
+            suite_root = pathlib.Path(args.suite_root)
         else:
             _init_submodules(allow_submodule_init=args.allow_submodule_init)
-            suite = _TEST_SUITE_DIR
+            suite_root = _TEST_SUITE_DIR
 
-        _info(f"using test suite directory: {str(suite)}")
+        _info(f"using test suite directory: {str(suite_root)}")
     except TestSetupError:
         exit(1)  # Assume relevant information is logged before raising.
 
