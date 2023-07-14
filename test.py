@@ -5,12 +5,19 @@ import argparse
 import dataclasses
 import enum
 import pathlib
+import re
 import reprlib
 import subprocess
 import sys
 
 _SCRIPT_DIR = pathlib.Path(__file__).parent
 _TEST_SUITE_DIR = _SCRIPT_DIR / "craftinginterpreters" / "test"
+
+_EXPECTED_OUTPUT_PATTERN = re.compile(r"// expect: ?(.*)")
+_EXPECTED_ERROR_PATTERN = re.compile(r"// (Error.*)")
+_EXPECTED_LINE_PATTERN = re.compile(r"// \[((java|c) )?line (\d+)\] (Error.*)")
+_EXPECTED_RUNTIME_ERROR_PATTERN = re.compile(r"// expect runtime error: (.+)")
+_EXPECTE_NONTEST_PATTERN = re.compile(r"// nontest")
 
 
 class SuiteType(enum.Enum):
@@ -73,7 +80,15 @@ def main() -> None:
     # placeholder for now...
     import pprint
 
-    pprint.pprint(tests)
+    test_expects = {
+        t.name: [
+            ExpectedOutput.try_from_line(i, l)
+            for i, l in enumerate(t.contents.split("\n"))
+            if _EXPECTED_OUTPUT_PATTERN.search(l)
+        ]
+        for t in tests
+    }
+    pprint.pprint(test_expects)
 
 
 def _init_submodules(allow_submodule_init: bool = False) -> None:
@@ -89,6 +104,19 @@ def _init_submodules(allow_submodule_init: bool = False) -> None:
             cwd=_SCRIPT_DIR,
         )
     _info(f"{str(_TEST_SUITE_DIR)} found, assuming submodules are initialized")
+
+
+@dataclasses.dataclass(frozen=True)
+class ExpectedOutput:
+    line_num: int
+    output: str
+
+    @classmethod
+    def try_from_line(cls, line_num: int, line: str) -> ExpectedOutput | None:
+        mat = _EXPECTED_OUTPUT_PATTERN.search(line)
+        if mat:
+            return cls(line_num=line_num, output=mat.group(1))
+        return None
 
 
 @dataclasses.dataclass(frozen=True)
