@@ -42,7 +42,7 @@ def main() -> None:
 
         _info(f"using test suite directory: {str(suite)}")
     except TestSetupError:
-        return  # Assume relevant information is logged before raising.
+        exit(1)  # Assume relevant information is logged before raising.
 
 
 def _init_submodules(allow_submodule_init: bool = False) -> None:
