@@ -80,28 +80,7 @@ def main() -> None:
     # placeholder for now...
     import pprint
 
-    test_expects = {
-        t.name: {
-            "output": [
-                ExpectedOutput.try_from_line(i + 1, l)
-                for i, l in enumerate(t.contents.split("\n"))
-                if _EXPECTED_OUTPUT_PATTERN.search(l)
-            ],
-            "compileErrors": [
-                ExpectedCompileError.try_from_line(i + 1, l)
-                for i, l in enumerate(t.contents.split("\n"))
-                if _EXPECTED_ERROR_PATTERN.search(l)
-                or _EXPECTED_LINE_PATTERN.search(l)
-            ],
-            "runtimeErrors": [
-                ExpectedRuntimeError.try_from_line(i + 1, l)
-                for i, l in enumerate(t.contents.split("\n"))
-                if _EXPECTED_RUNTIME_ERROR_PATTERN.search(l)
-            ],
-        }
-        for t in tests
-    }
-    pprint.pprint(test_expects)
+    pprint.pprint(tests)
 
 
 def _init_submodules(allow_submodule_init: bool = False) -> None:
@@ -180,12 +159,20 @@ class ExpectedRuntimeError:
 @dataclasses.dataclass(frozen=True)
 class Test:
     name: str
+    path: pathlib.Path
     contents: str
+
+    expected_outputs: list[ExpectedOutput]
+    expected_compile_errors: list[ExpectedCompileError]
+    expected_runtime_errors: list[ExpectedRuntimeError]
 
     def __repr__(self) -> str:
         return (
-            f"Test(name={self.name}, "
-            f"contents={reprlib.repr(self.contents)})"
+            f"Test(name={self.name}, path={self.path}, "
+            f"contents={reprlib.repr(self.contents)}, "
+            f"expected_outputs={self.expected_outputs}, "
+            f"expected_compile_errors={self.expected_compile_errors}, "
+            f"expected_runtime_errors={self.expected_runtime_errors})"
         )
 
     def __str__(self) -> str:
@@ -193,7 +180,29 @@ class Test:
 
     @classmethod
     def from_file(cls, path: pathlib.Path) -> Test:
-        return cls(name=path.stem, contents=path.read_text())
+        name = path.stem
+        contents = path.read_text()
+        expected_outputs: list[ExpectedOutput] = []
+        expected_compile_errors: list[ExpectedCompileError] = []
+        expected_runtime_errors: list[ExpectedRuntimeError] = []
+        for line_num, line in enumerate(contents.split("\n")):
+            if eo := ExpectedOutput.try_from_line(line_num, line):
+                expected_outputs.append(eo)
+                continue
+            if ece := ExpectedCompileError.try_from_line(line_num, line):
+                expected_compile_errors.append(ece)
+                continue
+            if ecr := ExpectedRuntimeError.try_from_line(line_num, line):
+                expected_runtime_errors.append(ecr)
+                continue
+        return cls(
+            name=name,
+            path=path,
+            contents=contents,
+            expected_outputs=expected_outputs,
+            expected_compile_errors=expected_compile_errors,
+            expected_runtime_errors=expected_runtime_errors,
+        )
 
 
 class TestSetupError(RuntimeError):
