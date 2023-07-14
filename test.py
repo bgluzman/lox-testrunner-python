@@ -28,7 +28,7 @@ def main() -> None:
         suite: pathlib.Path
         if args.suite:
             if args.allow_submodule_init:
-                _info(
+                _error(
                     "argument '--init-submodules' not allowed when"
                     "'--suite' is provided"
                 )
@@ -49,8 +49,8 @@ def _init_submodules(allow_submodule_init: bool = False) -> None:
     if not _TEST_SUITE_DIR.exists():
         _info("submodule 'craftinginterpreters' not initialized")
         if not allow_submodule_init:
-            _info("unable to run tests when submodules are not initialized")
-            _info("rerun with '--init-submodules' to do so automatically")
+            _error("unable to run tests when submodules are not initialized")
+            _error("rerun with '--init-submodules' to do so automatically")
             raise TestSetupError()
         _info("initializing submodules now")
         subprocess.run(
@@ -66,6 +66,10 @@ class TestSetupError(RuntimeError):
 
 def _info(*args, **kwargs) -> None:
     print("[test.py]", *args, **kwargs)
+
+
+def _error(*args, **kwargs) -> None:
+    print("[ERROR|test.py]", *args, **kwargs)
 
 
 if __name__ == "__main__":
