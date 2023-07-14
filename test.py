@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import enum
 import pathlib
 import subprocess
 import sys
@@ -9,9 +10,27 @@ _SCRIPT_DIR = pathlib.Path(__file__).parent
 _TEST_SUITE_DIR = _SCRIPT_DIR / "craftinginterpreters" / "test"
 
 
+class SuiteType(enum.Enum):
+    ALL = 1
+    JAVA = 2
+    C = 3
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "LOX_PATH",
+        help="Path to Lox interpreter under test.",
+    )
+    parser.add_argument(
+        "-s",
+        "--suite",
+        help="Test suite to run.",
+        choices=[st.name.lower() for st in SuiteType],
+        required=True,
+    )
+    parser.add_argument(
+        "-r",
         "--suite-root",
         help="Test suite root directory if not using the default.",
         default=None,
