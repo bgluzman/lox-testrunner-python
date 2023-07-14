@@ -60,6 +60,7 @@ def main() -> None:
             _info("using user-provided test suite path")
             suite_root = pathlib.Path(args.suite_root)
         else:
+            _info("using default test suite path")
             _init_submodules(allow_submodule_init=args.allow_submodule_init)
             suite_root = _TEST_SUITE_DIR
 
