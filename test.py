@@ -81,11 +81,24 @@ def main() -> None:
     import pprint
 
     test_expects = {
-        t.name: [
-            ExpectedOutput.try_from_line(i, l)
-            for i, l in enumerate(t.contents.split("\n"))
-            if _EXPECTED_OUTPUT_PATTERN.search(l)
-        ]
+        t.name: {
+            "output": [
+                ExpectedOutput.try_from_line(i + 1, l)
+                for i, l in enumerate(t.contents.split("\n"))
+                if _EXPECTED_OUTPUT_PATTERN.search(l)
+            ],
+            "compileErrors": [
+                ExpectedCompileError.try_from_line(i + 1, l)
+                for i, l in enumerate(t.contents.split("\n"))
+                if _EXPECTED_ERROR_PATTERN.search(l)
+                or _EXPECTED_LINE_PATTERN.search(l)
+            ],
+            "runtimeErrors": [
+                ExpectedRuntimeError.try_from_line(i + 1, l)
+                for i, l in enumerate(t.contents.split("\n"))
+                if _EXPECTED_RUNTIME_ERROR_PATTERN.search(l)
+            ],
+        }
         for t in tests
     }
     pprint.pprint(test_expects)
@@ -116,6 +129,51 @@ class ExpectedOutput:
         mat = _EXPECTED_OUTPUT_PATTERN.search(line)
         if mat:
             return cls(line_num=line_num, output=mat.group(1))
+        return None
+
+
+@dataclasses.dataclass(frozen=True)
+class ExpectedCompileError:
+    line_num: int
+    error: str
+    exit_code: int = 65
+    suite_type: SuiteType | None = None
+
+    @classmethod
+    def try_from_line(
+        cls,
+        line_num: int,
+        line: str,
+    ) -> ExpectedCompileError | None:
+        if mat := _EXPECTED_ERROR_PATTERN.search(line):
+            return cls(line_num=line_num, error=mat.group(1))
+        if mat := _EXPECTED_LINE_PATTERN.search(line):
+            suite_type = None
+            if language := mat.group(2):
+                suite_type = SuiteType[language.upper()]
+            return cls(
+                line_num=line_num,
+                error=mat.group(1),
+                suite_type=suite_type,
+            )
+        return None
+
+
+@dataclasses.dataclass(frozen=True)
+class ExpectedRuntimeError:
+    line_num: int
+    error: str
+    exit_code: int = 70
+
+    @classmethod
+    def try_from_line(
+        cls,
+        line_num: int,
+        line: str,
+    ) -> ExpectedRuntimeError | None:
+        mat = _EXPECTED_RUNTIME_ERROR_PATTERN.search(line)
+        if mat:
+            return cls(line_num=line_num, error=mat.group(1))
         return None
 
 
