@@ -20,7 +20,7 @@ _EXPECTED_RUNTIME_ERROR_PATTERN = re.compile(r"// expect runtime error: (.+)")
 _EXPECTE_NONTEST_PATTERN = re.compile(r"// nontest")
 
 
-class SuiteType(enum.Enum):
+class Language(enum.Enum):
     ALL = 1
     JAVA = 2
     C = 3
@@ -33,10 +33,10 @@ def main() -> None:
         help="Path to Lox interpreter under test.",
     )
     parser.add_argument(
-        "-s",
-        "--suite",
-        help="Test suite to run.",
-        choices=[st.name.lower() for st in SuiteType],
+        "-l",
+        "--language",
+        help="Language test suite to run.",
+        choices=[lang.name.lower() for lang in Language],
         required=True,
     )
     parser.add_argument(
@@ -116,7 +116,7 @@ class ExpectedCompileError:
     line_num: int
     error: str
     exit_code: int = 65
-    suite_type: SuiteType | None = None
+    suite_type: Language | None = None
 
     @classmethod
     def try_from_line(
@@ -129,7 +129,7 @@ class ExpectedCompileError:
         if mat := _EXPECTED_LINE_PATTERN.search(line):
             suite_type = None
             if language := mat.group(2):
-                suite_type = SuiteType[language.upper()]
+                suite_type = Language[language.upper()]
             return cls(
                 line_num=line_num,
                 error=mat.group(1),
