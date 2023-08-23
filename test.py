@@ -73,14 +73,19 @@ def main() -> None:
 
         _info(f"using test suite directory: {str(suite_root)}")
 
-        tests = [Test.from_file(path) for path in suite_root.glob("**/*.lox")]
+        # TODO (bgluzman): filter loading for only selected suites...
+        test_defs = [
+            TestDefinition.from_file(path)
+            for path in suite_root.glob("**/*.lox")
+        ]
     except TestSetupError:
         exit(1)  # Assume relevant information is logged before raising.
 
-    # placeholder for now...
-    import pprint
-
-    pprint.pprint(tests)
+    # TODO (bgluzman): support for running actual suites...
+    for td in test_defs:
+        if str(td.path).endswith("inherit_methods.lox"):
+            print(Test(td, args.LOX_PATH).run())
+            continue
 
 
 def _init_submodules(allow_submodule_init: bool = False) -> None:
@@ -157,7 +162,7 @@ class ExpectedRuntimeError:
 
 
 @dataclasses.dataclass(frozen=True)
-class Test:
+class TestDefinition:
     name: str
     path: pathlib.Path
     contents: str
@@ -168,7 +173,7 @@ class Test:
 
     def __repr__(self) -> str:
         return (
-            f"Test(name={self.name}, path={self.path}, "
+            f"TestDefinition(name={self.name}, path={self.path}, "
             f"contents={reprlib.repr(self.contents)}, "
             f"expected_outputs={self.expected_outputs}, "
             f"expected_compile_errors={self.expected_compile_errors}, "
@@ -178,8 +183,17 @@ class Test:
     def __str__(self) -> str:
         return self.name
 
+    @property
+    def expected_exit_code(self) -> int:
+        if self.expected_compile_errors:
+            return 65
+        elif self.expected_runtime_errors:
+            return 70
+        else:
+            return 0
+
     @classmethod
-    def from_file(cls, path: pathlib.Path) -> Test:
+    def from_file(cls, path: pathlib.Path) -> TestDefinition:
         name = path.stem
         contents = path.read_text()
         expected_outputs: list[ExpectedOutput] = []
@@ -207,6 +221,96 @@ class Test:
 
 class TestSetupError(RuntimeError):
     pass
+
+
+@dataclasses.dataclass
+class Test:
+    definition: TestDefinition
+    executable: pathlib.Path
+
+    @dataclasses.dataclass(frozen=True)
+    class Result:
+        failures: list[str]
+
+        @property
+        def is_success(self) -> bool:
+            return not bool(self.failures)
+
+        @property
+        def is_fail(self) -> bool:
+            return bool(self.failures)
+
+    def run(self) -> Result:
+        process = subprocess.run(
+            [self.executable, self.definition.path],
+            capture_output=True,
+        )
+        output = process.stdout.decode("utf-8")
+        output_lines = [ol for ol in output.split("\n") if ol]
+        error = process.stderr.decode("utf-8")
+        error_lines = [el for el in error.split("\n") if el]
+        exit_code = process.returncode
+
+        print(f"{output_lines=} {error_lines=}")
+        # TODO (bgluzman): validate runtime error
+        # TODO (bgluzman): validate compile errors
+
+        failures: list[str] = []
+        failures += self._validateExitCode(
+            exit_code,
+            error_lines,
+        )
+        failures += self._validateOutput(
+            output_lines,
+            error_lines,
+        )
+
+        return Test.Result(failures=failures)
+
+    def _validateExitCode(
+        self,
+        actual: int,
+        error_lines: list[str],
+    ) -> list[str]:
+        expected = self.definition.expected_exit_code
+        if expected == actual:
+            return []
+
+        if len(error_lines) > 10:
+            error_lines = error_lines[:10] + ["(truncated...)"]
+        return [
+            f"Expected return code {expected} and got {actual}. Stderr:",
+            *error_lines,
+        ]
+
+    def _validateOutput(
+        self,
+        output: list[str],
+        errors: list[str],
+    ) -> list[str]:
+        failures: list[str] = []
+        for idx, line in enumerate(output):
+            if idx >= len(self.definition.expected_outputs):
+                failures += [f"Got output '{line}' when none was expected"]
+                continue
+
+            expected = self.definition.expected_outputs[idx]
+            if expected.output != line:
+                failures += [
+                    f"Expected output '{expected.output}' on "
+                    f"line {expected.line_num} and got {line}."
+                ]
+
+        idx += 1  # bump idx once more because of how 'enumerate()' works
+        while idx < len(self.definition.expected_outputs):
+            expected = self.definition.expected_outputs[idx]
+            failures += [
+                f"Missing expected output '{expected.output}' on "
+                f"line {expected.line_num}."
+            ]
+            idx += 1
+
+        return failures
 
 
 def _info(*args, **kwargs) -> None:
