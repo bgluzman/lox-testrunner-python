@@ -90,7 +90,7 @@ def main() -> None:
     elif args.SUITE == "java":
         run_suites(suites, _BUILTIN_SUITE_SELECTIONS["java"], tests)
     elif args.SUITE in _BUILTIN_SUITE_SELECTIONS["all"]:
-        run_suite(suites[args.SUITE], tests)
+        exit(0 if run_suite(suites[args.SUITE], tests) else 1)
     else:
         _error(f"unknown suite '{args.SUITE}'")
         exit(1)
