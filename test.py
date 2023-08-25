@@ -23,9 +23,8 @@ _NONTEST_PATTERN = re.compile(r"// nontest")
 
 
 class Language(enum.Enum):
-    ALL = 1
-    JAVA = 2
-    C = 3
+    JAVA = 1
+    C = 2
 
 
 def main() -> None:
@@ -38,7 +37,8 @@ def main() -> None:
         "-l",
         "--language",
         help="Language test suite to run.",
-        choices=[lang.name.lower() for lang in Language],
+        choices=Language,
+        type=lambda lang: Language[lang.upper()],
         required=True,
     )
     parser.add_argument(
@@ -75,7 +75,6 @@ def main() -> None:
 
         _info(f"using test suite directory: {str(suite_root)}")
 
-        # TODO (bgluzman): filter tests based on lanugage?
         # TODO (bgluzman): filter loading for only selected suites...
         test_defs = [
             TestDefinition.from_file(path)
@@ -87,7 +86,12 @@ def main() -> None:
     # TODO (bgluzman): support for running actual suites...
     for td in test_defs:
         if str(td.path).endswith("class/local_inherit_self.lox"):
-            print(Test(td, args.LOX_PATH).run())
+            test = Test(
+                definition=td,
+                executable=args.LOX_PATH,
+                language=args.language,
+            )
+            print(test.run())
             continue
 
 
@@ -124,7 +128,7 @@ class ExpectedCompileError:
     line_num: int
     error: str
     exit_code: int = 65
-    suite_type: Language | None = None
+    language: Language | None = None
 
     @classmethod
     def try_from_line(
@@ -138,13 +142,13 @@ class ExpectedCompileError:
                 error=f"[line {line_num}] {mat.group(1)}",
             )
         if mat := _EXPECTED_LINE_PATTERN.search(line):
-            suite_type = None
-            if language := mat.group(2):
-                suite_type = Language[language.upper()]
+            language = None
+            if language_match := mat.group(2):
+                language = Language[language_match.upper()]
             return cls(
                 line_num=line_num,
                 error=f"[line {mat.group(3)}] {mat.group(4)}",
-                suite_type=suite_type,
+                language=language,
             )
         return None
 
@@ -240,6 +244,7 @@ class TestSetupError(RuntimeError):
 class Test:
     definition: TestDefinition
     executable: pathlib.Path
+    language: Language
 
     @dataclasses.dataclass(frozen=True)
     class Result:
@@ -366,8 +371,9 @@ class Test:
         error_lines: list[str],
     ) -> list[str]:
         expected_errors: set[str] = {
-            compile_err.error
-            for compile_err in self.definition.expected_compile_errors
+            ece.error
+            for ece in self.definition.expected_compile_errors
+            if not ece.language or ece.language == self.language
         }
 
         failures: list[str] = []
