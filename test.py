@@ -17,7 +17,9 @@ _EXPECTED_OUTPUT_PATTERN = re.compile(r"// expect: ?(.*)")
 _EXPECTED_ERROR_PATTERN = re.compile(r"// (Error.*)")
 _EXPECTED_LINE_PATTERN = re.compile(r"// \[((java|c) )?line (\d+)\] (Error.*)")
 _EXPECTED_RUNTIME_ERROR_PATTERN = re.compile(r"// expect runtime error: (.+)")
-_EXPECTE_NONTEST_PATTERN = re.compile(r"// nontest")
+_SYNTAX_ERROR_PATTERN = re.compile(r"\[.*line (\d+)\] (Error.+)")
+_STACK_TRACE_PATTERN = re.compile(r"\[line (\d+)\]")
+_NONTEST_PATTERN = re.compile(r"// nontest")
 
 
 class Language(enum.Enum):
@@ -83,7 +85,7 @@ def main() -> None:
 
     # TODO (bgluzman): support for running actual suites...
     for td in test_defs:
-        if str(td.path).endswith("inherit_methods.lox"):
+        if str(td.path).endswith("super/missing_arguments.lox"):
             print(Test(td, args.LOX_PATH).run())
             continue
 
@@ -169,7 +171,7 @@ class TestDefinition:
 
     expected_outputs: list[ExpectedOutput]
     expected_compile_errors: list[ExpectedCompileError]
-    expected_runtime_errors: list[ExpectedRuntimeError]
+    expected_runtime_error: ExpectedRuntimeError | None
 
     def __repr__(self) -> str:
         return (
@@ -177,7 +179,7 @@ class TestDefinition:
             f"contents={reprlib.repr(self.contents)}, "
             f"expected_outputs={self.expected_outputs}, "
             f"expected_compile_errors={self.expected_compile_errors}, "
-            f"expected_runtime_errors={self.expected_runtime_errors})"
+            f"expected_runtime_errors={self.expected_runtime_error})"
         )
 
     def __str__(self) -> str:
@@ -186,9 +188,9 @@ class TestDefinition:
     @property
     def expected_exit_code(self) -> int:
         if self.expected_compile_errors:
-            return 65
-        elif self.expected_runtime_errors:
-            return 70
+            return self.expected_compile_errors[0].exit_code
+        elif self.expected_runtime_error:
+            return self.expected_runtime_error.exit_code
         else:
             return 0
 
@@ -198,8 +200,8 @@ class TestDefinition:
         contents = path.read_text()
         expected_outputs: list[ExpectedOutput] = []
         expected_compile_errors: list[ExpectedCompileError] = []
-        expected_runtime_errors: list[ExpectedRuntimeError] = []
-        for line_num, line in enumerate(contents.split("\n")):
+        expected_runtime_error: ExpectedRuntimeError | None = None
+        for line_num, line in enumerate(contents.split("\n"), 1):
             if eo := ExpectedOutput.try_from_line(line_num, line):
                 expected_outputs.append(eo)
                 continue
@@ -207,15 +209,22 @@ class TestDefinition:
                 expected_compile_errors.append(ece)
                 continue
             if ecr := ExpectedRuntimeError.try_from_line(line_num, line):
-                expected_runtime_errors.append(ecr)
+                expected_runtime_error = ecr
                 continue
+
+        # Unlikely to ever happen, but check just in case.
+        if expected_compile_errors:
+            exit_codes = [ecr.exit_code for ecr in expected_compile_errors]
+            if not all(exit_codes[0] == ec for ec in exit_codes):
+                raise TestSetupError("errors with differing exit codes")
+
         return cls(
             name=name,
             path=path,
             contents=contents,
             expected_outputs=expected_outputs,
             expected_compile_errors=expected_compile_errors,
-            expected_runtime_errors=expected_runtime_errors,
+            expected_runtime_error=expected_runtime_error,
         )
 
 
@@ -251,11 +260,12 @@ class Test:
         error_lines = [el for el in error.split("\n") if el]
         exit_code = process.returncode
 
-        print(f"{output_lines=} {error_lines=}")
-        # TODO (bgluzman): validate runtime error
-        # TODO (bgluzman): validate compile errors
-
         failures: list[str] = []
+        print(f"{output_lines=} {error_lines=}")
+        if self.definition.expected_runtime_error:
+            failures += self._validateRuntimeErrors(error_lines)
+        else:
+            failures += self._validateCompileErrors(error_lines)
         failures += self._validateExitCode(
             exit_code,
             error_lines,
@@ -285,32 +295,74 @@ class Test:
 
     def _validateOutput(
         self,
-        output: list[str],
-        errors: list[str],
+        output_lines: list[str],
+        error_lines: list[str],
     ) -> list[str]:
         failures: list[str] = []
-        for idx, line in enumerate(output):
-            if idx >= len(self.definition.expected_outputs):
+        for index in range(0, len(output_lines)):
+            line = output_lines[index]
+            if index >= len(self.definition.expected_outputs):
                 failures += [f"Got output '{line}' when none was expected"]
                 continue
 
-            expected = self.definition.expected_outputs[idx]
+            expected = self.definition.expected_outputs[index]
             if expected.output != line:
                 failures += [
                     f"Expected output '{expected.output}' on "
                     f"line {expected.line_num} and got {line}."
                 ]
 
-        idx += 1  # bump idx once more because of how 'enumerate()' works
-        while idx < len(self.definition.expected_outputs):
-            expected = self.definition.expected_outputs[idx]
+        index = len(output_lines)
+        while index < len(self.definition.expected_outputs):
+            expected = self.definition.expected_outputs[index]
             failures += [
                 f"Missing expected output '{expected.output}' on "
                 f"line {expected.line_num}."
             ]
-            idx += 1
+            index += 1
 
         return failures
+
+    def _validateRuntimeErrors(
+        self,
+        error_lines: list[str],
+    ) -> list[str]:
+        expected = self.definition.expected_runtime_error
+        assert expected, "Should not be None in this context."
+
+        if not error_lines:
+            return [f"Expected runtime error '{expected.error}' and got none"]
+
+        if error_lines[0] != expected.error:
+            return [
+                f"Expected runtime error '{expected.error}' and got:",
+                error_lines[0],
+            ]
+
+        stack_match = None
+        stack_lines = error_lines[1:]
+        for line in stack_lines:
+            stack_match = _STACK_TRACE_PATTERN.search(line)
+            if stack_match:
+                break
+        else:
+            # No matching line found...
+            return ["Expected stack trace and got:", *stack_lines]
+
+        stack_line = int(stack_match.group(1))
+        if stack_line != expected.line_num:
+            return [
+                f"Expected runtime error on line {expected.line_num} "
+                f"but was on line {stack_line}"
+            ]
+
+        return []
+
+    def _validateCompileErrors(
+        self,
+        error_lines: list[str],
+    ) -> list[str]:
+        return []  # TODO (bgluzman)
 
 
 def _info(*args, **kwargs) -> None:
