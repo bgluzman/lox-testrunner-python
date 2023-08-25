@@ -75,6 +75,7 @@ def main() -> None:
 
         _info(f"using test suite directory: {str(suite_root)}")
 
+        # TODO (bgluzman): filter tests based on lanugage?
         # TODO (bgluzman): filter loading for only selected suites...
         test_defs = [
             TestDefinition.from_file(path)
@@ -85,7 +86,7 @@ def main() -> None:
 
     # TODO (bgluzman): support for running actual suites...
     for td in test_defs:
-        if str(td.path).endswith("super/missing_arguments.lox"):
+        if str(td.path).endswith("class/local_inherit_self.lox"):
             print(Test(td, args.LOX_PATH).run())
             continue
 
@@ -132,14 +133,17 @@ class ExpectedCompileError:
         line: str,
     ) -> ExpectedCompileError | None:
         if mat := _EXPECTED_ERROR_PATTERN.search(line):
-            return cls(line_num=line_num, error=mat.group(1))
+            return cls(
+                line_num=line_num,
+                error=f"[line {line_num}] {mat.group(1)}",
+            )
         if mat := _EXPECTED_LINE_PATTERN.search(line):
             suite_type = None
             if language := mat.group(2):
                 suite_type = Language[language.upper()]
             return cls(
                 line_num=line_num,
-                error=mat.group(1),
+                error=f"[line {mat.group(3)}] {mat.group(4)}",
                 suite_type=suite_type,
             )
         return None
@@ -261,7 +265,6 @@ class Test:
         exit_code = process.returncode
 
         failures: list[str] = []
-        print(f"{output_lines=} {error_lines=}")
         if self.definition.expected_runtime_error:
             failures += self._validateRuntimeErrors(error_lines)
         else:
@@ -362,7 +365,35 @@ class Test:
         self,
         error_lines: list[str],
     ) -> list[str]:
-        return []  # TODO (bgluzman)
+        expected_errors: set[str] = {
+            compile_err.error
+            for compile_err in self.definition.expected_compile_errors
+        }
+
+        failures: list[str] = []
+        found_errors: set[str] = set()
+        unexpected_count: int = 0
+        for line in error_lines:
+            syntax_match = _SYNTAX_ERROR_PATTERN.search(line)
+            if syntax_match:
+                error = (
+                    f"[line {syntax_match.group(1)}] "
+                    f"{syntax_match.group(2)}"
+                )
+                if error in expected_errors:
+                    found_errors.add(error)
+                else:
+                    if unexpected_count < 10:
+                        failures += ["Unexpected output on stderr:", line]
+                    unexpected_count += 1
+
+        if unexpected_count > 10:
+            failures += [f"(truncated {unexpected_count - 10} more...)"]
+
+        for error in expected_errors - found_errors:
+            failures += [f"Missing expected error: {error}"]
+
+        return failures
 
 
 def _info(*args, **kwargs) -> None:
