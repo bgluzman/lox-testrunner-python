@@ -111,17 +111,18 @@ def run_suites(
 
 
 def run_suite(suite: Suite, tests: dict[str, Test]) -> bool:
-    passed, failed, skipped, expectations = 0, 0, 0, 0
-    for relpath, test in tests.items():
-        skip = False
+    def _is_test_skipped(relpath: str) -> bool:
         parts = relpath.split("/")
         for i in range(len(parts) + 1):
             subpath = "/".join(parts[:i])
             if subpath in suite.tests and suite.tests[subpath] == "skip":
-                skip = True
-                skipped += 1
-                break
-        if skip:
+                return True
+        return False
+
+    passed, failed, skipped, expectations = 0, 0, 0, 0
+    for relpath, test in tests.items():
+        if _is_test_skipped(relpath):
+            skipped += 1
             continue
 
         if "benchmark" in str(test.path):
