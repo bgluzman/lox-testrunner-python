@@ -24,11 +24,6 @@ _NONTEST_PATTERN = re.compile(r"// nontest")
 _BUILTIN_SUITE_SELECTIONS: dict[str, set[str]] = {}
 
 
-PassCount = int
-FailCount = int
-ExpectationCount = int
-
-
 class Language(enum.Enum):
     JAVA = 1
     C = 2
@@ -106,40 +101,28 @@ def run_suites(
     selections: set[str],
     tests: dict[str, Test],
 ) -> None:
-    any_failures: bool = False
+    success: bool = True
     selected: list[Suite] = [suites[sel] for sel in selections]
     for suite in selected:
         print(f"=== {suite.name} ===")
-        passed, failed, expectations = run_suite(suite, tests)
-        if not failed:
-            print(
-                f"All {_green(passed)} tests passed "
-                f"({expectations} expectations)."
-            )
-        else:
-            any_failures = True
-            print(
-                f"{_green(passed)} tests passed. "
-                f"{_red(failed)} tests failed."
-            )
-    if any_failures:
+        success &= run_suite(suite, tests)
+    if not success:
         exit(1)
 
 
-def run_suite(
-    suite: Suite,
-    tests: dict[str, Test],
-) -> tuple[PassCount, FailCount, ExpectationCount]:
+def run_suite(suite: Suite, tests: dict[str, Test]) -> bool:
     passed, failed, skipped, expectations = 0, 0, 0, 0
     for relpath, test in tests.items():
-        subpath = ""
+        skip = False
         parts = relpath.split("/")
-        for part in parts:
-            if subpath:
-                subpath += "/"
+        for i in range(len(parts) + 1):
+            subpath = "/".join(parts[:i])
             if subpath in suite.tests and suite.tests[subpath] == "skip":
+                skip = True
                 skipped += 1
-                continue
+                break
+        if skip:
+            continue
 
         if "benchmark" in str(test.path):
             continue
@@ -157,7 +140,16 @@ def run_suite(
             failed += 1
         expectations += test.num_expectations(suite.language)
 
-    return passed, failed, expectations
+    if not failed:
+        print(
+            f"All {_green(passed)} tests passed "
+            f"({expectations} expectations)."
+        )
+    else:
+        print(
+            f"{_green(passed)} tests passed. " f"{_red(failed)} tests failed."
+        )
+    return failed == 0
 
 
 class TestSetupError(RuntimeError):
