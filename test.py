@@ -6,7 +6,6 @@ import dataclasses
 import enum
 import pathlib
 import re
-import reprlib
 import subprocess
 import sys
 
@@ -75,24 +74,24 @@ def main() -> None:
 
         _info(f"using test suite directory: {str(suite_root)}")
 
-        # TODO (bgluzman): filter loading for only selected suites...
-        test_defs = [
-            TestDefinition.from_file(path)
-            for path in suite_root.glob("**/*.lox")
-        ]
+        tests = [Test.from_file(path) for path in suite_root.glob("**/*.lox")]
     except TestSetupError:
         exit(1)  # Assume relevant information is logged before raising.
 
     # TODO (bgluzman): support for running actual suites...
-    for td in test_defs:
-        if str(td.path).endswith("class/local_inherit_self.lox"):
-            test = Test(
-                definition=td,
-                executable=args.LOX_PATH,
-                language=args.language,
-            )
-            print(test.run())
-            continue
+    suite = Suite(
+        "test",
+        args.language,
+        args.LOX_PATH,
+        {"class/local_inherit_self.lox": Suite.TestState.PASS},
+    )
+    for test in tests:
+        if str(test.path).endswith("class/local_inherit_self.lox"):
+            print(test.run(suite))
+
+
+class TestSetupError(RuntimeError):
+    pass
 
 
 def _init_submodules(allow_submodule_init: bool = False) -> None:
@@ -172,10 +171,21 @@ class ExpectedRuntimeError:
 
 
 @dataclasses.dataclass(frozen=True)
-class TestDefinition:
+class Suite:
+    class TestState(enum.Enum):
+        PASS = 1
+        SKIP = 2
+
+    name: str
+    language: Language
+    executable: pathlib.Path
+    tests: dict[str, TestState]
+
+
+@dataclasses.dataclass(frozen=True)
+class Test:
     name: str
     path: pathlib.Path
-    contents: str
 
     expected_outputs: list[ExpectedOutput]
     expected_compile_errors: list[ExpectedCompileError]
@@ -183,8 +193,7 @@ class TestDefinition:
 
     def __repr__(self) -> str:
         return (
-            f"TestDefinition(name={self.name}, path={self.path}, "
-            f"contents={reprlib.repr(self.contents)}, "
+            f"Test(name={self.name}, path={self.path}, "
             f"expected_outputs={self.expected_outputs}, "
             f"expected_compile_errors={self.expected_compile_errors}, "
             f"expected_runtime_errors={self.expected_runtime_error})"
@@ -203,7 +212,10 @@ class TestDefinition:
             return 0
 
     @classmethod
-    def from_file(cls, path: pathlib.Path) -> TestDefinition:
+    def from_file(
+        cls,
+        path: pathlib.Path,
+    ) -> Test:
         name = path.stem
         contents = path.read_text()
         expected_outputs: list[ExpectedOutput] = []
@@ -229,22 +241,10 @@ class TestDefinition:
         return cls(
             name=name,
             path=path,
-            contents=contents,
             expected_outputs=expected_outputs,
             expected_compile_errors=expected_compile_errors,
             expected_runtime_error=expected_runtime_error,
         )
-
-
-class TestSetupError(RuntimeError):
-    pass
-
-
-@dataclasses.dataclass
-class Test:
-    definition: TestDefinition
-    executable: pathlib.Path
-    language: Language
 
     @dataclasses.dataclass(frozen=True)
     class Result:
@@ -258,9 +258,9 @@ class Test:
         def is_fail(self) -> bool:
             return bool(self.failures)
 
-    def run(self) -> Result:
+    def run(self, suite: Suite) -> Result:
         process = subprocess.run(
-            [self.executable, self.definition.path],
+            [suite.executable, self.path],
             capture_output=True,
         )
         output = process.stdout.decode("utf-8")
@@ -270,10 +270,13 @@ class Test:
         exit_code = process.returncode
 
         failures: list[str] = []
-        if self.definition.expected_runtime_error:
+        if self.expected_runtime_error:
             failures += self._validate_runtime_errors(error_lines)
         else:
-            failures += self._validate_compile_errors(error_lines)
+            failures += self._validate_compile_errors(
+                suite.language,
+                error_lines,
+            )
         failures += self._validate_exit_code(
             exit_code,
             error_lines,
@@ -290,7 +293,7 @@ class Test:
         actual: int,
         error_lines: list[str],
     ) -> list[str]:
-        expected = self.definition.expected_exit_code
+        expected = self.expected_exit_code
         if expected == actual:
             return []
 
@@ -309,11 +312,11 @@ class Test:
         failures: list[str] = []
         for index in range(0, len(output_lines)):
             line = output_lines[index]
-            if index >= len(self.definition.expected_outputs):
+            if index >= len(self.expected_outputs):
                 failures += [f"Got output '{line}' when none was expected"]
                 continue
 
-            expected = self.definition.expected_outputs[index]
+            expected = self.expected_outputs[index]
             if expected.output != line:
                 failures += [
                     f"Expected output '{expected.output}' on "
@@ -321,8 +324,8 @@ class Test:
                 ]
 
         index = len(output_lines)
-        while index < len(self.definition.expected_outputs):
-            expected = self.definition.expected_outputs[index]
+        while index < len(self.expected_outputs):
+            expected = self.expected_outputs[index]
             failures += [
                 f"Missing expected output '{expected.output}' on "
                 f"line {expected.line_num}."
@@ -335,7 +338,7 @@ class Test:
         self,
         error_lines: list[str],
     ) -> list[str]:
-        expected = self.definition.expected_runtime_error
+        expected = self.expected_runtime_error
         assert expected, "Should not be None in this context."
 
         if not error_lines:
@@ -368,12 +371,13 @@ class Test:
 
     def _validate_compile_errors(
         self,
+        suite_language: Language,
         error_lines: list[str],
     ) -> list[str]:
         expected_errors: set[str] = {
             ece.error
-            for ece in self.definition.expected_compile_errors
-            if not ece.language or ece.language == self.language
+            for ece in self.expected_compile_errors
+            if not ece.language or ece.language == suite_language
         }
 
         failures: list[str] = []
