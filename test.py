@@ -131,7 +131,6 @@ def run_suite(
             skipped += 1
             continue
 
-        # TODO (bgluzman): count expectations...
         test = tests[test_name]
         result = test.run(suite)
         if result.is_success:
@@ -144,6 +143,7 @@ def run_suite(
                 print(f"    {_yellow(failure)}")
             print("")
             failed += 1
+        expectations += test.num_expectations(suite.language)
 
     return passed, failed, expectations
 
@@ -264,6 +264,15 @@ class Test:
             return self.expected_runtime_error.exit_code
         else:
             return 0
+
+    def num_expectations(self, language: Language) -> int:
+        if num_compile_errors := len(
+            [ece.language == language for ece in self.expected_compile_errors]
+        ):
+            return num_compile_errors
+
+        num_outputs = len(self.expected_outputs)
+        return (1 if self.expected_runtime_error else 0) + num_outputs
 
     @classmethod
     def from_file(
