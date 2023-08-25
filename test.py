@@ -101,17 +101,22 @@ def run_suites(
     selections: set[str],
     tests: dict[str, Test],
 ) -> None:
-    # TODO (bgluzman): colors for printing
     any_failures: bool = False
     selected: list[Suite] = [suites[sel] for sel in selections]
     for suite in selected:
         print(f"=== {suite.name} ===")
         passed, failed, expectations = run_suite(suite, tests)
         if not failed:
-            print(f"All {passed} tests passed ({expectations} expectations).")
+            print(
+                f"All {_green(passed)} tests passed "
+                f"({expectations} expectations)."
+            )
         else:
             any_failures = True
-            print(f"{passed} tests passed. {failed} tests failed.")
+            print(
+                f"{_green(passed)} tests passed. "
+                f"{_red(failed)} tests failed."
+            )
     if any_failures:
         exit(1)
 
@@ -120,7 +125,6 @@ def run_suite(
     suite: Suite,
     tests: dict[str, Test],
 ) -> tuple[PassCount, FailCount, ExpectationCount]:
-    # TODO (bgluzman): colors for printing
     passed, failed, skipped, expectations = 0, 0, 0, 0
     for test_name, state in suite.tests.items():
         if state == "skip":
@@ -134,10 +138,10 @@ def run_suite(
             passed += 1
         else:
             assert result.is_fail, "Test cannot both fail and succeed."
-            print(f"FAIL {test_name}")
+            print(f"{_red('FAIL')} {test_name}")
             print("")
             for failure in result.failures:
-                print(f"    {failure}")
+                print(f"    {_yellow(failure)}")
             print("")
             failed += 1
 
@@ -465,6 +469,37 @@ def _builtin_suites(executable: pathlib.Path) -> dict[str, Suite]:
             {"class/local_inherit_self.lox": "pass"},
         )
     }
+
+
+# from blender build scripts:
+# https://svn.blender.org/
+#   svnroot/bf-blender/trunk/blender/build_files/scons/tools/bcolors.py
+class bcolors:
+    HEADER = "\033[95m"
+    OKBLUE = "\033[94m"
+    OKCYAN = "\033[96m"
+    OKGREEN = "\033[92m"
+    WARNING = "\033[93m"
+    FAIL = "\033[91m"
+    ENDC = "\033[0m"
+    BOLD = "\033[1m"
+    UNDERLINE = "\033[4m"
+
+
+def _color(color: str, message: str) -> str:
+    return f"{color}{message}{bcolors.ENDC}"
+
+
+def _green(message, **kwargs) -> str:
+    return _color(bcolors.OKGREEN, str(message))
+
+
+def _yellow(message, **kwargs) -> str:
+    return _color(bcolors.WARNING, str(message))
+
+
+def _red(message, **kwargs) -> str:
+    return _color(bcolors.FAIL, str(message))
 
 
 def _info(*args, **kwargs) -> None:
