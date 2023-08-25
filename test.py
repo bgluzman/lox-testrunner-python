@@ -266,21 +266,21 @@ class Test:
 
         failures: list[str] = []
         if self.definition.expected_runtime_error:
-            failures += self._validateRuntimeErrors(error_lines)
+            failures += self._validate_runtime_errors(error_lines)
         else:
-            failures += self._validateCompileErrors(error_lines)
-        failures += self._validateExitCode(
+            failures += self._validate_compile_errors(error_lines)
+        failures += self._validate_exit_code(
             exit_code,
             error_lines,
         )
-        failures += self._validateOutput(
+        failures += self._validate_output(
             output_lines,
             error_lines,
         )
 
         return Test.Result(failures=failures)
 
-    def _validateExitCode(
+    def _validate_exit_code(
         self,
         actual: int,
         error_lines: list[str],
@@ -296,7 +296,7 @@ class Test:
             *error_lines,
         ]
 
-    def _validateOutput(
+    def _validate_output(
         self,
         output_lines: list[str],
         error_lines: list[str],
@@ -326,7 +326,7 @@ class Test:
 
         return failures
 
-    def _validateRuntimeErrors(
+    def _validate_runtime_errors(
         self,
         error_lines: list[str],
     ) -> list[str]:
@@ -361,7 +361,7 @@ class Test:
 
         return []
 
-    def _validateCompileErrors(
+    def _validate_compile_errors(
         self,
         error_lines: list[str],
     ) -> list[str]:
