@@ -147,9 +147,7 @@ def run_suite(suite: Suite, tests: dict[str, Test]) -> bool:
             f"({expectations} expectations)."
         )
     else:
-        print(
-            f"{_green(passed)} tests passed. " f"{_red(failed)} tests failed."
-        )
+        print(f"{_green(passed)} tests passed. {_red(failed)} tests failed.")
     return failed == 0
 
 
