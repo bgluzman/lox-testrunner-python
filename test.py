@@ -24,6 +24,11 @@ _NONTEST_PATTERN = re.compile(r"// nontest")
 _BUILTIN_SUITE_SELECTIONS = {"all": {"development"}}
 
 
+PassCount = int
+FailCount = int
+ExpectationCount = int
+
+
 class Language(enum.Enum):
     JAVA = 1
     C = 2
@@ -96,22 +101,47 @@ def run_suites(
     selections: set[str],
     tests: dict[str, Test],
 ) -> None:
-    seleted = [suites[sel] for sel in selections]
-    for suite in seleted:
-        run_suite(suite, tests)
+    # TODO (bgluzman): colors for printing
+    any_failures: bool = False
+    selected: list[Suite] = [suites[sel] for sel in selections]
+    for suite in selected:
+        print(f"=== {suite.name} ===")
+        passed, failed, expectations = run_suite(suite, tests)
+        if not failed:
+            print(f"All {passed} tests passed ({expectations} expectations).")
+        else:
+            any_failures = True
+            print(f"{passed} tests passed. {failed} tests failed.")
+    if any_failures:
+        exit(1)
 
 
-def run_suite(suite: Suite, tests: dict[str, Test]) -> None:
-    print(">>>")
-    print(suite)
+def run_suite(
+    suite: Suite,
+    tests: dict[str, Test],
+) -> tuple[PassCount, FailCount, ExpectationCount]:
+    # TODO (bgluzman): colors for printing
+    passed, failed, skipped, expectations = 0, 0, 0, 0
     for test_name, state in suite.tests.items():
         if state == "skip":
-            # TODO (bgluzman): increment 'skipped' coutner...
+            skipped += 1
             continue
 
+        # TODO (bgluzman): count expectations...
         test = tests[test_name]
-        print(test.run(suite))
-    print("<<<")
+        result = test.run(suite)
+        if result.is_success:
+            passed += 1
+        else:
+            assert result.is_fail, "Test cannot both fail and succeed."
+            print(f"FAIL {test_name}")
+            print("")
+            for failure in result.failures:
+                print(f"    {failure}")
+            print("")
+            failed += 1
+
+    return passed, failed, expectations
 
 
 class TestSetupError(RuntimeError):
