@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 _SCRIPT_DIR = pathlib.Path(__file__).parent
-_TESTS_ROOT_DIR = _SCRIPT_DIR / "craftinginterpreters" / "test"
+_TESTS_ROOT_DIR = _SCRIPT_DIR / "craftinginterpreters"
 
 _EXPECTED_OUTPUT_PATTERN = re.compile(r"// expect: ?(.*)")
 _EXPECTED_ERROR_PATTERN = re.compile(r"// (Error.*)")
@@ -20,8 +20,8 @@ _SYNTAX_ERROR_PATTERN = re.compile(r"\[.*line (\d+)\] (Error.+)")
 _STACK_TRACE_PATTERN = re.compile(r"\[line (\d+)\]")
 _NONTEST_PATTERN = re.compile(r"// nontest")
 
-# TODO (bgluzman): populate this for real
-_BUILTIN_SUITE_SELECTIONS = {"all": {"development"}}
+# Populated under _builtin_suites
+_BUILTIN_SUITE_SELECTIONS: dict[str, set[str]] = {}
 
 
 PassCount = int
@@ -82,17 +82,22 @@ def main() -> None:
 
         tests = {
             str(path.relative_to(tests_root)): Test.from_file(path)
-            for path in tests_root.glob("**/*.lox")
+            for path in tests_root.glob("test/**/*.lox")
         }
     except TestSetupError:
         exit(1)  # Assumes relevant information is logged before raising.
 
-    # TODO (bgluzman): populate remaining suites...
     suites = _builtin_suites(args.interpreter)
     if args.SUITE == "all":
         run_suites(suites, _BUILTIN_SUITE_SELECTIONS["all"], tests)
+    elif args.SUITE == "c":
+        run_suites(suites, _BUILTIN_SUITE_SELECTIONS["c"], tests)
+    elif args.SUITE == "java":
+        run_suites(suites, _BUILTIN_SUITE_SELECTIONS["java"], tests)
+    elif args.SUITE in _BUILTIN_SUITE_SELECTIONS["all"]:
+        run_suite(suites[args.SUITE], tests)
     else:
-        _error(f"unknown suite '{args.suite}'")
+        _error(f"unknown suite '{args.SUITE}'")
         exit(1)
 
 
@@ -126,18 +131,25 @@ def run_suite(
     tests: dict[str, Test],
 ) -> tuple[PassCount, FailCount, ExpectationCount]:
     passed, failed, skipped, expectations = 0, 0, 0, 0
-    for test_name, state in suite.tests.items():
-        if state == "skip":
-            skipped += 1
+    for relpath, test in tests.items():
+        subpath = ""
+        parts = relpath.split("/")
+        for part in parts:
+            if subpath:
+                subpath += "/"
+            if subpath in suite.tests and suite.tests[subpath] == "skip":
+                skipped += 1
+                continue
+
+        if "benchmark" in str(test.path):
             continue
 
-        test = tests[test_name]
         result = test.run(suite)
         if result.is_success:
             passed += 1
         else:
             assert result.is_fail, "Test cannot both fail and succeed."
-            print(f"{_red('FAIL')} {test_name}")
+            print(f"{_red('FAIL')} {relpath}")
             print("")
             for failure in result.failures:
                 print(f"    {_yellow(failure)}")
@@ -470,14 +482,472 @@ class Test:
 
 
 def _builtin_suites(executable: pathlib.Path) -> dict[str, Suite]:
-    return {
-        "development": Suite(
-            "development",
-            Language.C,
-            executable,
-            {"class/local_inherit_self.lox": "pass"},
+    all_suites: dict[str, Suite] = {}
+
+    def c(name: str, tests: dict[str, str]) -> None:
+        nonlocal all_suites
+        all_suites[name] = Suite(
+            name=name,
+            language=Language.C,
+            executable=executable,
+            tests=tests,
         )
+        _BUILTIN_SUITE_SELECTIONS.setdefault("c", set()).add(name)
+
+    def java(name: str, tests: dict[str, str]) -> None:
+        nonlocal all_suites
+        all_suites[name] = Suite(
+            name=name,
+            language=Language.JAVA,
+            executable=executable,
+            tests=tests,
+        )
+        _BUILTIN_SUITE_SELECTIONS.setdefault("java", set()).add(name)
+
+    # These are just for earlier chapters.
+    earlyChapters = {
+        "test/scanning": "skip",
+        "test/expressions": "skip",
     }
+
+    # JVM doesn't correctly implement IEEE equality on boxed doubles.
+    javaNaNEquality = {
+        "test/number/nan_equality.lox": "skip",
+    }
+
+    # No hardcoded limits in jlox.
+    noJavaLimits = {
+        "test/limit/loop_too_large.lox": "skip",
+        "test/limit/no_reuse_constants.lox": "skip",
+        "test/limit/too_many_constants.lox": "skip",
+        "test/limit/too_many_locals.lox": "skip",
+        "test/limit/too_many_upvalues.lox": "skip",
+        # Rely on JVM for stack overflow checking.
+        "test/limit/stack_overflow.lox": "skip",
+    }
+
+    # No classes in Java yet.
+    noJavaClasses = {
+        "test/assignment/to_this.lox": "skip",
+        "test/call/object.lox": "skip",
+        "test/class": "skip",
+        "test/closure/close_over_method_parameter.lox": "skip",
+        "test/constructor": "skip",
+        "test/field": "skip",
+        "test/inheritance": "skip",
+        "test/method": "skip",
+        "test/number/decimal_point_at_eof.lox": "skip",
+        "test/number/trailing_dot.lox": "skip",
+        "test/operator/equals_class.lox": "skip",
+        "test/operator/equals_method.lox": "skip",
+        "test/operator/not_class.lox": "skip",
+        "test/regression/394.lox": "skip",
+        "test/super": "skip",
+        "test/this": "skip",
+        "test/return/in_method.lox": "skip",
+        "test/variable/local_from_method.lox": "skip",
+    }
+
+    # No functions in Java yet.
+    noJavaFunctions = {
+        "test/call": "skip",
+        "test/closure": "skip",
+        "test/for/closure_in_body.lox": "skip",
+        "test/for/return_closure.lox": "skip",
+        "test/for/return_inside.lox": "skip",
+        "test/for/syntax.lox": "skip",
+        "test/function": "skip",
+        "test/operator/not.lox": "skip",
+        "test/regression/40.lox": "skip",
+        "test/return": "skip",
+        "test/unexpected_character.lox": "skip",
+        "test/while/closure_in_body.lox": "skip",
+        "test/while/return_closure.lox": "skip",
+        "test/while/return_inside.lox": "skip",
+    }
+
+    # No resolution in Java yet.
+    noJavaResolution = {
+        "test/closure/assign_to_shadowed_later.lox": "skip",
+        "test/function/local_mutual_recursion.lox": "skip",
+        "test/variable/collide_with_parameter.lox": "skip",
+        "test/variable/duplicate_local.lox": "skip",
+        "test/variable/duplicate_parameter.lox": "skip",
+        "test/variable/early_bound.lox": "skip",
+        # Broken because we haven"t fixed it yet by detecting the error.
+        "test/return/at_top_level.lox": "skip",
+        "test/variable/use_local_in_initializer.lox": "skip",
+    }
+
+    # No control flow in C yet.
+    noCControlFlow = {
+        "test/block/empty.lox": "skip",
+        "test/for": "skip",
+        "test/if": "skip",
+        "test/limit/loop_too_large.lox": "skip",
+        "test/logical_operator": "skip",
+        "test/variable/unreached_undefined.lox": "skip",
+        "test/while": "skip",
+    }
+
+    # No functions in C yet.
+    noCFunctions = {
+        "test/call": "skip",
+        "test/closure": "skip",
+        "test/for/closure_in_body.lox": "skip",
+        "test/for/return_closure.lox": "skip",
+        "test/for/return_inside.lox": "skip",
+        "test/for/syntax.lox": "skip",
+        "test/function": "skip",
+        "test/limit/no_reuse_constants.lox": "skip",
+        "test/limit/stack_overflow.lox": "skip",
+        "test/limit/too_many_constants.lox": "skip",
+        "test/limit/too_many_locals.lox": "skip",
+        "test/limit/too_many_upvalues.lox": "skip",
+        "test/regression/40.lox": "skip",
+        "test/return": "skip",
+        "test/unexpected_character.lox": "skip",
+        "test/variable/collide_with_parameter.lox": "skip",
+        "test/variable/duplicate_parameter.lox": "skip",
+        "test/variable/early_bound.lox": "skip",
+        "test/while/closure_in_body.lox": "skip",
+        "test/while/return_closure.lox": "skip",
+        "test/while/return_inside.lox": "skip",
+    }
+
+    # No classes in C yet.
+    noCClasses = {
+        "test/assignment/to_this.lox": "skip",
+        "test/call/object.lox": "skip",
+        "test/class": "skip",
+        "test/closure/close_over_method_parameter.lox": "skip",
+        "test/constructor": "skip",
+        "test/field": "skip",
+        "test/inheritance": "skip",
+        "test/method": "skip",
+        "test/number/decimal_point_at_eof.lox": "skip",
+        "test/number/trailing_dot.lox": "skip",
+        "test/operator/equals_class.lox": "skip",
+        "test/operator/equals_method.lox": "skip",
+        "test/operator/not.lox": "skip",
+        "test/operator/not_class.lox": "skip",
+        "test/regression/394.lox": "skip",
+        "test/return/in_method.lox": "skip",
+        "test/super": "skip",
+        "test/this": "skip",
+        "test/variable/local_from_method.lox": "skip",
+    }
+
+    # No inheritance in C yet.
+    noCInheritance = {
+        "test/class/local_inherit_other.lox": "skip",
+        "test/class/local_inherit_self.lox": "skip",
+        "test/class/inherit_self.lox": "skip",
+        "test/class/inherited_method.lox": "skip",
+        "test/inheritance": "skip",
+        "test/regression/394.lox": "skip",
+        "test/super": "skip",
+    }
+
+    java(
+        "jlox",
+        {
+            "test": "pass",
+            **earlyChapters,
+            **javaNaNEquality,
+            **noJavaLimits,
+        },
+    )
+
+    java(
+        "chap04_scanning",
+        {
+            # No interpreter yet.
+            "test": "skip",
+            "test/scanning": "pass",
+        },
+    )
+
+    # No test for chapter 5. It just has a hardcoded main() in AstPrinter.
+
+    java(
+        "chap06_parsing",
+        {
+            # No real interpreter yet.
+            "test": "skip",
+            "test/expressions/parse.lox": "pass",
+        },
+    )
+
+    java(
+        "chap07_evaluating",
+        {
+            # No real interpreter yet.
+            "test": "skip",
+            "test/expressions/evaluate.lox": "pass",
+        },
+    )
+
+    java(
+        "chap08_statements",
+        {
+            "test": "pass",
+            **earlyChapters,
+            **javaNaNEquality,
+            **noJavaLimits,
+            **noJavaFunctions,
+            **noJavaResolution,
+            **noJavaClasses,
+            # No control flow.
+            "test/block/empty.lox": "skip",
+            "test/for": "skip",
+            "test/if": "skip",
+            "test/logical_operator": "skip",
+            "test/while": "skip",
+            "test/variable/unreached_undefined.lox": "skip",
+        },
+    )
+
+    java(
+        "chap09_control",
+        {
+            "test": "pass",
+            **earlyChapters,
+            **javaNaNEquality,
+            **noJavaLimits,
+            **noJavaFunctions,
+            **noJavaResolution,
+            **noJavaClasses,
+        },
+    )
+
+    java(
+        "chap10_functions",
+        {
+            "test": "pass",
+            **earlyChapters,
+            **javaNaNEquality,
+            **noJavaLimits,
+            **noJavaResolution,
+            **noJavaClasses,
+        },
+    )
+
+    java(
+        "chap11_resolving",
+        {
+            "test": "pass",
+            **earlyChapters,
+            **javaNaNEquality,
+            **noJavaLimits,
+            **noJavaClasses,
+        },
+    )
+
+    java(
+        "chap12_classes",
+        {
+            "test": "pass",
+            **earlyChapters,
+            **noJavaLimits,
+            **javaNaNEquality,
+            # No inheritance.
+            "test/class/local_inherit_other.lox": "skip",
+            "test/class/local_inherit_self.lox": "skip",
+            "test/class/inherit_self.lox": "skip",
+            "test/class/inherited_method.lox": "skip",
+            "test/inheritance": "skip",
+            "test/regression/394.lox": "skip",
+            "test/super": "skip",
+        },
+    )
+
+    java(
+        "chap13_inheritance",
+        {
+            "test": "pass",
+            **earlyChapters,
+            **javaNaNEquality,
+            **noJavaLimits,
+        },
+    )
+
+    c(
+        "clox",
+        {
+            "test": "pass",
+            **earlyChapters,
+        },
+    )
+
+    c(
+        "chap17_compiling",
+        {
+            # No real interpreter yet.
+            "test": "skip",
+            "test/expressions/evaluate.lox": "pass",
+        },
+    )
+
+    c(
+        "chap18_types",
+        {
+            # No real interpreter yet.
+            "test": "skip",
+            "test/expressions/evaluate.lox": "pass",
+        },
+    )
+
+    c(
+        "chap19_strings",
+        {
+            # No real interpreter yet.
+            "test": "skip",
+            "test/expressions/evaluate.lox": "pass",
+        },
+    )
+
+    c(
+        "chap20_hash",
+        {
+            # No real interpreter yet.
+            "test": "skip",
+            "test/expressions/evaluate.lox": "pass",
+        },
+    )
+
+    c(
+        "chap21_global",
+        {
+            "test": "pass",
+            **earlyChapters,
+            **noCControlFlow,
+            **noCFunctions,
+            **noCClasses,
+            # No blocks.
+            "test/assignment/local.lox": "skip",
+            "test/variable/in_middle_of_block.lox": "skip",
+            "test/variable/in_nested_block.lox": "skip",
+            "test/variable/scope_reuse_in_different_blocks.lox": "skip",
+            "test/variable/shadow_and_local.lox": "skip",
+            "test/variable/undefined_local.lox": "skip",
+            # No local variables.
+            "test/block/scope.lox": "skip",
+            "test/variable/duplicate_local.lox": "skip",
+            "test/variable/shadow_global.lox": "skip",
+            "test/variable/shadow_local.lox": "skip",
+            "test/variable/use_local_in_initializer.lox": "skip",
+        },
+    )
+
+    c(
+        "chap22_local",
+        {
+            "test": "pass",
+            **earlyChapters,
+            **noCControlFlow,
+            **noCFunctions,
+            **noCClasses,
+        },
+    )
+
+    c(
+        "chap23_jumping",
+        {
+            "test": "pass",
+            **earlyChapters,
+            **noCFunctions,
+            **noCClasses,
+        },
+    )
+
+    c(
+        "chap24_calls",
+        {
+            "test": "pass",
+            **earlyChapters,
+            **noCClasses,
+            # No closures.
+            "test/closure": "skip",
+            "test/for/closure_in_body.lox": "skip",
+            "test/for/return_closure.lox": "skip",
+            "test/function/local_recursion.lox": "skip",
+            "test/limit/too_many_upvalues.lox": "skip",
+            "test/regression/40.lox": "skip",
+            "test/while/closure_in_body.lox": "skip",
+            "test/while/return_closure.lox": "skip",
+        },
+    )
+
+    c(
+        "chap25_closures",
+        {
+            "test": "pass",
+            **earlyChapters,
+            **noCClasses,
+        },
+    )
+
+    c(
+        "chap26_garbage",
+        {
+            "test": "pass",
+            **earlyChapters,
+            **noCClasses,
+        },
+    )
+
+    c(
+        "chap27_classes",
+        {
+            "test": "pass",
+            **earlyChapters,
+            **noCInheritance,
+            # No methods.
+            "test/assignment/to_this.lox": "skip",
+            "test/class/local_reference_self.lox": "skip",
+            "test/class/reference_self.lox": "skip",
+            "test/closure/close_over_method_parameter.lox": "skip",
+            "test/constructor": "skip",
+            "test/field/get_and_set_method.lox": "skip",
+            "test/field/method.lox": "skip",
+            "test/field/method_binds_this.lox": "skip",
+            "test/method": "skip",
+            "test/operator/equals_class.lox": "skip",
+            "test/operator/equals_method.lox": "skip",
+            "test/return/in_method.lox": "skip",
+            "test/this": "skip",
+            "test/variable/local_from_method.lox": "skip",
+        },
+    )
+
+    c(
+        "chap28_methods",
+        {
+            "test": "pass",
+            **earlyChapters,
+            **noCInheritance,
+        },
+    )
+
+    c(
+        "chap29_superclasses",
+        {
+            "test": "pass",
+            **earlyChapters,
+        },
+    )
+
+    c(
+        "chap30_optimization",
+        {
+            "test": "pass",
+            **earlyChapters,
+        },
+    )
+
+    _BUILTIN_SUITE_SELECTIONS["all"] = set(all_suites.keys())
+    return all_suites
 
 
 # from blender build scripts:
