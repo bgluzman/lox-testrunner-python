@@ -20,6 +20,9 @@ _SYNTAX_ERROR_PATTERN = re.compile(r"\[.*line (\d+)\] (Error.+)")
 _STACK_TRACE_PATTERN = re.compile(r"\[line (\d+)\]")
 _NONTEST_PATTERN = re.compile(r"// nontest")
 
+# TODO (bgluzman): populate this for real
+_BUILTIN_SUITE_SELECTIONS = {"all": {"development"}}
+
 
 class Language(enum.Enum):
     JAVA = 1
@@ -27,14 +30,21 @@ class Language(enum.Enum):
 
 
 def main() -> None:
+    # TODO (bgluzman): add '--arguments' for interpreter args?
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "LOX_PATH",
-        help="Path to Lox interpreter under test.",
+        "-i",
+        "--interpreter",
+        help="Path to interpreter.",
+        required=True,
+    )
+    parser.add_argument(
+        "SUITE",
+        help="Test suite name.",
     )
     parser.add_argument(
         "--tests-root",
-        help="Root directory of test files (if not using default).",
+        help="Root test file directory (if not using default).",
         default=None,
     )
     parser.add_argument(
@@ -65,20 +75,43 @@ def main() -> None:
 
         _info(f"using test suite directory: {str(tests_root)}")
 
-        tests = [Test.from_file(path) for path in tests_root.glob("**/*.lox")]
+        tests = {
+            str(path.relative_to(tests_root)): Test.from_file(path)
+            for path in tests_root.glob("**/*.lox")
+        }
     except TestSetupError:
-        exit(1)  # Assume relevant information is logged before raising.
+        exit(1)  # Assumes relevant information is logged before raising.
 
-    # TODO (bgluzman): support for running actual suites...
-    suite = Suite(
-        "test",
-        Language.C,
-        args.LOX_PATH,
-        {"class/local_inherit_self.lox": Suite.TestState.PASS},
-    )
-    for test in tests:
-        if str(test.path).endswith("class/local_inherit_self.lox"):
-            print(test.run(suite))
+    # TODO (bgluzman): populate remaining suites...
+    suites = _builtin_suites(args.interpreter)
+    if args.SUITE == "all":
+        run_suites(suites, _BUILTIN_SUITE_SELECTIONS["all"], tests)
+    else:
+        _error(f"unknown suite '{args.suite}'")
+        exit(1)
+
+
+def run_suites(
+    suites: dict[str, Suite],
+    selections: set[str],
+    tests: dict[str, Test],
+) -> None:
+    seleted = [suites[sel] for sel in selections]
+    for suite in seleted:
+        run_suite(suite, tests)
+
+
+def run_suite(suite: Suite, tests: dict[str, Test]) -> None:
+    print(">>>")
+    print(suite)
+    for test_name, state in suite.tests.items():
+        if state == "skip":
+            # TODO (bgluzman): increment 'skipped' coutner...
+            continue
+
+        test = tests[test_name]
+        print(test.run(suite))
+    print("<<<")
 
 
 class TestSetupError(RuntimeError):
@@ -163,14 +196,10 @@ class ExpectedRuntimeError:
 
 @dataclasses.dataclass(frozen=True)
 class Suite:
-    class TestState(enum.Enum):
-        PASS = 1
-        SKIP = 2
-
     name: str
     language: Language
     executable: pathlib.Path
-    tests: dict[str, TestState]
+    tests: dict[str, str]  # path str -> "pass" | "skip"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -395,6 +424,17 @@ class Test:
             failures += [f"Missing expected error: {error}"]
 
         return failures
+
+
+def _builtin_suites(executable: pathlib.Path) -> dict[str, Suite]:
+    return {
+        "development": Suite(
+            "development",
+            Language.C,
+            executable,
+            {"class/local_inherit_self.lox": "pass"},
+        )
+    }
 
 
 def _info(*args, **kwargs) -> None:
