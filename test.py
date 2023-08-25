@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 _SCRIPT_DIR = pathlib.Path(__file__).parent
-_TEST_SUITE_DIR = _SCRIPT_DIR / "craftinginterpreters" / "test"
+_TESTS_ROOT_DIR = _SCRIPT_DIR / "craftinginterpreters" / "test"
 
 _EXPECTED_OUTPUT_PATTERN = re.compile(r"// expect: ?(.*)")
 _EXPECTED_ERROR_PATTERN = re.compile(r"// (Error.*)")
@@ -33,17 +33,8 @@ def main() -> None:
         help="Path to Lox interpreter under test.",
     )
     parser.add_argument(
-        "-l",
-        "--language",
-        help="Language test suite to run.",
-        choices=Language,
-        type=lambda lang: Language[lang.upper()],
-        required=True,
-    )
-    parser.add_argument(
-        "-r",
-        "--suite-root",
-        help="Test suite root directory if not using the default.",
+        "--tests-root",
+        help="Root directory of test files (if not using default).",
         default=None,
     )
     parser.add_argument(
@@ -56,8 +47,8 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        suite_root: pathlib.Path
-        if args.suite_root:
+        tests_root: pathlib.Path
+        if args.tests_root:
             if args.allow_submodule_init:
                 _error(
                     "argument '--init-submodules' not allowed when"
@@ -66,22 +57,22 @@ def main() -> None:
                 raise TestSetupError()
 
             _info("using user-provided test suite path")
-            suite_root = pathlib.Path(args.suite_root)
+            tests_root = pathlib.Path(args.tests_root)
         else:
             _info("using default test suite path")
             _init_submodules(allow_submodule_init=args.allow_submodule_init)
-            suite_root = _TEST_SUITE_DIR
+            tests_root = _TESTS_ROOT_DIR
 
-        _info(f"using test suite directory: {str(suite_root)}")
+        _info(f"using test suite directory: {str(tests_root)}")
 
-        tests = [Test.from_file(path) for path in suite_root.glob("**/*.lox")]
+        tests = [Test.from_file(path) for path in tests_root.glob("**/*.lox")]
     except TestSetupError:
         exit(1)  # Assume relevant information is logged before raising.
 
     # TODO (bgluzman): support for running actual suites...
     suite = Suite(
         "test",
-        args.language,
+        Language.C,
         args.LOX_PATH,
         {"class/local_inherit_self.lox": Suite.TestState.PASS},
     )
@@ -95,7 +86,7 @@ class TestSetupError(RuntimeError):
 
 
 def _init_submodules(allow_submodule_init: bool = False) -> None:
-    if not _TEST_SUITE_DIR.exists():
+    if not _TESTS_ROOT_DIR.exists():
         _info("submodule 'craftinginterpreters' not initialized")
         if not allow_submodule_init:
             _error("unable to run tests when submodules are not initialized")
@@ -106,7 +97,7 @@ def _init_submodules(allow_submodule_init: bool = False) -> None:
             ["git", "submodule", "update", "--init"],
             cwd=_SCRIPT_DIR,
         )
-    _info(f"{str(_TEST_SUITE_DIR)} found, assuming submodules are initialized")
+    _info(f"{str(_TESTS_ROOT_DIR)} found, assuming submodules are initialized")
 
 
 @dataclasses.dataclass(frozen=True)
